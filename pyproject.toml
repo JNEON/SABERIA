@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "saberia"
+version = "0.1.0"
+description = "Videojuego educativo familiar de preguntas y aprendizaje"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Interfaz. La API de Flet cambia entre versiones: fijar y verificar al actualizar.
+    "flet>=0.28,<2",
+    # Base de datos: MySQL 8 local (SQLAlchemy + PyMySQL + Alembic).
+    "SQLAlchemy>=2.0,<3",
+    "alembic>=1.13,<2",
+    # El extra "rsa" instala "cryptography", necesario para la autenticación
+    # por defecto de MySQL 8 (caching_sha2_password) sin TLS.
+    "PyMySQL[rsa]>=1.1,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+saberia = "saberia.main:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
