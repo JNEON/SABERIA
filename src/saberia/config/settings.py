@@ -35,7 +35,7 @@ class Settings:
     db_port: int = 3306
     db_user: str = "saberia_app"
     db_password: str = field(default="", repr=False)
-    db_name: str = "saberia"
+    db_name: str = "saberiadb"
     db_connect_timeout: int = 5
 
 

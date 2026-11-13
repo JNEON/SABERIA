@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
     # Interfaz. La API de Flet cambia entre versiones: fijar y verificar al actualizar.
     "flet>=0.28,<2",
-    # Base de datos: MySQL 8 local (SQLAlchemy + PyMySQL + Alembic).
+    # Base de datos: MariaDB 10.4+ / MySQL 8.0.16+ (SQLAlchemy + PyMySQL + Alembic).
     "SQLAlchemy>=2.0,<3",
     "alembic>=1.13,<2",
     # El extra "rsa" instala "cryptography", necesario para la autenticación

@@ -1,317 +1,538 @@
-# SABERIA — Arquitectura
+# SABERIA --- Arquitectura del sistema
 
-> **Versión 1.** Diseño aprobado. Estado de implementación: andamiaje inicial (configuración,
-> prueba de conexión con MySQL y ventana mínima de Flet). El motor de juego, la ruleta y las
-> pantallas funcionales **no están implementados todavía**.
+> **Versión documental 2.0 --- actualización de estado y estructura.**
+>
+> Este documento conserva las decisiones funcionales y de arquitectura
+> del diseño aprobado, y actualiza las responsabilidades de los módulos
+> y el estado conocido de implementación.
+>
+> **Estado:** dominio, persistencia ORM, migraciones y módulo de
+> lectura/validación de paquetes JSON implementados. El MVP jugable
+> todavía está en desarrollo.
 >
 > Documentos relacionados: [data-model.md](data-model.md) ·
 > [question-package-format.md](question-package-format.md)
 
 ## 1. Contexto y objetivos
 
-SABERIA es un videojuego educativo familiar de preguntas y aprendizaje. Se desarrolla en
-**escritorio primero**, con una arquitectura que permita evolucionar a web y a dispositivos móviles.
+SABERIA es un videojuego educativo familiar de preguntas y aprendizaje.
+Se desarrolla primero para escritorio, con una arquitectura que permita
+evolucionar posteriormente a web y dispositivos móviles.
 
-### 1.1 Familia de prueba (MVP)
+### 1.1 Familia de prueba del MVP
 
-Las primeras pruebas se harán con **un niño de 9 años y dos adultos mayores de 30**.
+Las primeras pruebas se plantean con un niño de 9 años y dos adultos
+mayores de 30.
 
-- Franjas de edad en juego: **7-9** (niño) y **18+** (adultos).
-- Objetivo educativo para el niño: **mejorar en matemáticas** y reforzar los conocimientos en
-  el resto de áreas.
-- Consecuencias de diseño:
-  - La edad orienta el contenido y la dificultad se configura **por jugador y de forma
-    independiente** (el niño puede jugar la dificultad que le convenga dentro de su franja).
-  - El banco inicial se concentra en 7-9 y 18+ y da **más peso a Matemáticas** (sección 8).
-  - El perfil acumulado por competencia es la herramienta principal de seguimiento del niño
-    (sección 7).
+-   Franjas principales de prueba: **7-9** y **18+**.
+-   Objetivo educativo para el niño: mejorar en Matemáticas y reforzar
+    conocimientos en otras áreas.
+-   La edad determina qué preguntas son elegibles.
+-   La dificultad y el temporizador se configuran de manera
+    independiente por jugador.
+-   El perfil acumulado por competencia será el principal mecanismo de
+    seguimiento del aprendizaje.
 
-## 2. Decisiones cerradas
+## 2. Decisiones de arquitectura
 
-| # | Tema | Decisión |
-|---|---|---|
-| 1 | Plataforma | Escritorio primero; arquitectura preparada para web y móvil |
-| 2 | Público | Desde 4 años hasta adultos; la edad orienta el contenido, la dificultad es independiente |
-| 3 | Participantes | De 2 a 8; el MVP se prueba con 2 a 4 |
-| 4 | Modalidades | Ruleta y tablero sobre el mismo motor y las mismas reglas. **Ruleta primero**; tablero en la fase 2 |
-| 5 | Estilo | Competitivo primero; cooperativo después |
-| 6 | Preguntas | Banco híbrido (propias, fuentes abiertas con licencia compatible, asistidas por IA con validación). El banco inicial del MVP es **solo de preguntas propias** |
-| 7 | Almacenamiento | MySQL 8 local (SQLAlchemy, Alembic, PyMySQL). JSON solo para importar/exportar paquetes |
-| 8 | Conectividad | Funciona sin internet mientras el servidor MySQL local esté disponible |
-| 9 | Resultados | Puntuación, aciertos, errores, omitidas, tiempo de respuesta, fortalezas y competencias por reforzar |
-| 10 | Crecimiento | Modelo de datos preparado para más de 100.000 preguntas, sin cargarlo ni desarrollarlo en el MVP |
+  -----------------------------------------------------------------------
+  Tema                                Decisión
+  ----------------------------------- -----------------------------------
+  Plataforma inicial                  Escritorio; arquitectura preparada
+                                      para una evolución posterior
+
+  Lenguaje                            Python
+
+  Interfaz prevista                   Flet
+
+  Participantes                       De 2 a 8 soportados por el modelo;
+                                      pruebas iniciales de 2 a 4
+
+  Modalidades                         Ruleta primero; tablero en fase
+                                      posterior
+
+  Estilo                              Competitivo primero; cooperativo
+                                      después
+
+  Preguntas                           Contenido propio, fuentes abiertas
+                                      con licencia compatible y contenido
+                                      asistido por IA con validación
+                                      humana
+
+  Persistencia                        MariaDB 10.4.32 en el entorno local
+                                      actual
+
+  ORM                                 SQLAlchemy 2
+
+  Migraciones                         Alembic
+
+  Driver                              PyMySQL
+
+  Intercambio de contenido            Paquetes JSON
+
+  Conectividad                        La partida debe funcionar sin
+                                      Internet mientras MariaDB local
+                                      esté disponible
+  -----------------------------------------------------------------------
+
+El banco inicial del MVP se concibió entre 40 y 60 preguntas propias. El
+paquete de Ciencias Naturales con 35 preguntas aprobadas editorialmente
+constituye el primer paquete de contenido; no reemplaza por sí solo el
+objetivo general del banco mínimo.
 
 ## 3. Principios
 
-- **Python + Flet** para la interfaz. El motor de juego no conoce Flet.
-- **Motor independiente** del modo (ruleta/tablero) y del estilo (competitivo/cooperativo).
-- **SQL portable**: sin `ENUM` de MySQL ni funciones propias, para poder cambiar de motor si la
-  distribución final lo exige.
-- **Todo el contenido entra por paquetes JSON**, también las preguntas propias.
-- **Regla de dependencias:** `ui → engine / analytics / packages → domain ← persistence`.
-  El dominio no importa nada del resto; el motor solo conoce la base de datos mediante puertos.
+-   Separación entre dominio, persistencia, contenido, motor de juego,
+    analítica e interfaz.
+-   El dominio no importa Flet, SQLAlchemy ni el driver de base de
+    datos.
+-   El motor de juego no conoce los detalles de la interfaz.
+-   La interfaz presenta el estado y solicita acciones; no decide las
+    reglas.
+-   La persistencia concentra el acceso a MariaDB.
+-   El contenido se intercambia mediante paquetes JSON validados.
+-   La validación de un paquete no equivale a importarlo o publicarlo en
+    la base de datos.
+-   Las reglas que involucran varias entidades o filas se validan en la
+    capa de aplicación o dominio.
+-   No se requiere conexión a servicios externos durante una partida.
 
-## 4. Estructura de carpetas
+## 4. Estructura del proyecto
 
-`(creado)` = existe en el andamiaje inicial; `(pendiente)` = diseñado, aún sin implementar.
+La siguiente estructura refleja las responsabilidades conocidas del
+proyecto. Los módulos que aún no se han implementado se identifican como
+pendientes en la sección 10.
 
-```
+``` text
 SABERIA/
-├── pyproject.toml              (creado) dependencias y versiones acotadas
-├── .env.example                (creado) plantilla de configuración; el .env real está ignorado
-├── README.md                   (creado) instalación, configuración y ejecución
-├── alembic.ini                 (pendiente)
-├── migrations/                 (creado, vacío) migraciones de Alembic
-├── docs/                       (creado) architecture.md, data-model.md, question-package-format.md
-├── content/                    (creado, vacío)
-│   ├── schema/                 (pendiente) JSON Schema del paquete de preguntas
-│   └── packages/               (pendiente) paquetes versionados (banco inicial)
-├── src/saberia/
-│   ├── main.py, __main__.py    (creado) punto de entrada
-│   ├── config/                 (creado) settings.py: carga y validación de configuración
-│   ├── persistence/
-│   │   ├── database.py         (creado) conexión de prueba con MySQL
-│   │   ├── models.py           (pendiente) ORM
-│   │   └── repositories/       (creado, vacío)
-│   ├── ui/
-│   │   ├── app.py              (creado) ventana mínima de diagnóstico
-│   │   ├── views/              (creado, vacío)
-│   │   └── components/         (creado, vacío)
-│   ├── domain/                 (creado, vacío) entidades, enums y puertos
-│   ├── engine/                 (creado, vacío)
-│   │   ├── rules/              competitive.py; cooperative.py llegará después
-│   │   └── modes/              roulette.py; board.py en la fase 2
-│   │   (pendientes: session, selector, scoring, helps, clock)
-│   ├── analytics/              (creado, vacío)
-│   ├── packages/               (creado, vacío) validador, importador, exportador
-│   └── assets/                 (creado) fuentes e imágenes locales
-├── tools/                      (creado, vacío) scripts auxiliares
-└── tests/                      (creado) pruebas automatizadas
+├── pyproject.toml
+├── .env.example
+├── README.md
+├── alembic.ini
+├── migrations/
+│   ├── env.py
+│   └── versions/
+├── docs/
+│   ├── architecture.md
+│   ├── data-model.md
+│   └── question-package-format.md
+├── src/
+│   └── saberia/
+│       ├── main.py
+│       ├── __main__.py
+│       ├── config/
+│       ├── content/
+│       │   ├── __init__.py
+│       │   ├── schema.py
+│       │   ├── validator.py
+│       │   └── package_loader.py
+│       ├── domain/
+│       │   ├── entities.py
+│       │   ├── enums.py
+│       │   └── rules.py
+│       ├── persistence/
+│       │   ├── base.py
+│       │   ├── database.py
+│       │   ├── models/
+│       │   └── repositories/
+│       ├── packages/
+│       │   └── examples/
+│       ├── engine/
+│       ├── analytics/
+│       ├── ui/
+│       └── assets/
+└── tests/
 ```
 
-> **Nombres de carpeta prohibidos.** El `.gitignore` (plantilla de Python) ignora cualquier carpeta
-> llamada `build`, `lib`, `lib64`, `downloads`, `parts`, `var`, `eggs`, `sdist`, `wheels`, `dist`,
-> `target` o `cover`, y archivos `*.mo`, `*.pot`, `*.log`, `*.spec` y `db.sqlite3`. Ningún módulo,
-> recurso o carpeta de contenido debe llamarse así, o Git lo omitiría en silencio.
+### 4.1 Responsabilidad de los módulos
 
-## 5. Responsabilidades de los módulos
+  -----------------------------------------------------------------------
+  Módulo                              Responsabilidad
+  ----------------------------------- -----------------------------------
+  `config`                            Cargar y validar la configuración
+                                      de la aplicación
 
-| Módulo | Responsabilidad | No debe hacer |
-|---|---|---|
-| `domain` | Entidades, enums (franja de edad, resultado, modo, estilo) y puertos | Importar Flet, SQLAlchemy o MySQL |
-| `engine/session` | Ciclo de la partida y del turno | Saber si el modo es ruleta o tablero |
-| `engine/selector` | Elegir preguntas por categoría, edad y dificultad del jugador, con respaldo | Usar `ORDER BY RAND()` |
-| `engine/scoring` | +1 por correcta, 0 en el resto | Depender de dificultad, tiempo o ayudas |
-| `engine/helps` | Cambio de pregunta y pista | Consumir turnos |
-| `engine/clock` | Reloj monótono inyectable | Depender de la interfaz |
-| `engine/modes` | Decidir la categoría de cada turno y el orden de juego | Puntuar |
-| `engine/rules` | Condición de victoria y estilo (competitivo; cooperativo después) | Conocer la interfaz |
-| `analytics` | Resultados y clasificación de competencias a partir de `game_turns` | Guardar tablas de caché en el MVP |
-| `packages` | Validar, importar (idempotente) y exportar paquetes JSON | Generar preguntas con IA |
-| `persistence` | ORM, repositorios, migraciones, comprobación de conexión | Contener lógica de juego |
-| `ui` | Vistas y navegación; dibuja el cronómetro | **Decidir** cuándo vence el tiempo o aplicar reglas |
-| `config` | Cargar y validar la configuración (entorno y `.env`) | Registrar o mostrar contraseñas |
+  `content`                           Definir el contrato JSON, validar
+                                      paquetes y leer archivos JSON
+
+  `domain`                            Entidades, enumeraciones y reglas
+                                      independientes de la
+                                      infraestructura
+
+  `persistence`                       Conexión, modelos ORM, repositorios
+                                      y acceso a la base de datos
+
+  `packages`                          Ejemplos y recursos de paquetes de
+                                      contenido
+
+  `engine`                            Ciclo de partida, turnos,
+                                      selección, puntuación, ayudas y
+                                      reloj
+
+  `analytics`                         Resultados y clasificación de
+                                      competencias
+
+  `ui`                                Interfaz gráfica y navegación
+
+  `assets`                            Fuentes, imágenes e iconos locales
+
+  `tests`                             Pruebas unitarias y de integración
+  -----------------------------------------------------------------------
+
+**Ubicación real del módulo de contenido:** el contrato, el validador y
+el cargador JSON están en `src/saberia/content/`. La carpeta
+`src/saberia/packages/` no es responsable de implementar esas funciones.
+
+## 5. Arquitectura por capas
+
+### 5.1 Dominio
+
+Contiene entidades, enumeraciones y reglas del negocio que no dependen
+de la interfaz ni de la infraestructura. No debe importar Flet,
+SQLAlchemy ni PyMySQL.
+
+### 5.2 Persistencia
+
+Gestiona el almacenamiento local mediante SQLAlchemy y MariaDB. Incluye
+la base declarativa, los modelos ORM, la configuración de conexión y las
+migraciones de Alembic. Los repositorios encapsulan las operaciones de
+lectura y escritura que requiera la aplicación.
+
+La existencia de modelos y migraciones no significa que todos los casos
+de uso de persistencia estén terminados: la importación de paquetes y
+los repositorios del flujo de juego son trabajo pendiente.
+
+### 5.3 Contenido
+
+El módulo `src/saberia/content/` contiene:
+
+-   `schema.py`: contrato de datos, tipos y constantes del paquete.
+-   `validator.py`: validaciones estructurales y semánticas.
+-   `package_loader.py`: lectura de JSON y ejecución de la validación.
+
+El cargador devuelve los datos de un paquete válido. No realiza por sí
+mismo inserciones, actualizaciones ni publicación en MariaDB.
+
+### 5.4 Motor de juego
+
+El motor será responsable de gestionar la partida y los turnos,
+seleccionar preguntas elegibles, aplicar puntuación, controlar ayudas y
+temporizador, y determinar las condiciones de finalización. Debe poder
+probarse sin ejecutar la interfaz gráfica.
+
+### 5.5 Interfaz
+
+La interfaz permitirá configurar jugadores y partidas, presentar la
+ruleta, las preguntas, las opciones, el temporizador y los resultados.
+Las reglas se aplicarán en el motor y no directamente en los controles
+visuales.
+
+### 5.6 Analítica
+
+La analítica calculará resultados por partida y el desempeño acumulado
+por competencia. Las respuestas omitidas, los tiempos agotados y las
+respuestas realizadas con pista no se consideran evaluables para el
+perfil de competencias.
 
 ## 6. Reglas de juego
 
 ### 6.1 Puntuación y victoria
-- Correcta: **+1**. Incorrecta, omitida o tiempo agotado: **0**.
-- La puntuación no depende de la dificultad, el tiempo ni las ayudas.
-- Gana quien tenga más puntos. En caso de empate, victoria compartida.
-- Como cada jugador recibe preguntas de su propia franja y dificultad, el +1 uniforme mantiene
-  la partida equilibrada en familias con edades mixtas.
 
-### 6.2 Turno
-```
-Inicio de turno (cambios usados = 0, pista disponible)
-→ la ruleta elige la categoría
-→ se muestra la pregunta y arranca el temporizador
-→ [cambiar pregunta] vuelve a "se muestra la pregunta"
-→ [pista] elimina dos alternativas incorrectas
+-   Respuesta correcta: **+1 punto**.
+-   Respuesta incorrecta, omitida o tiempo agotado: **0 puntos**.
+-   La puntuación no depende de la dificultad, el tiempo ni las ayudas.
+-   Gana quien obtiene más puntos. En caso de empate, se declara
+    victoria compartida.
+
+### 6.2 Ciclo del turno
+
+``` text
+Inicio del turno
+→ selección de categoría
+→ presentación de pregunta y comienzo del temporizador
+→ cambio de pregunta (opcional)
+→ uso de pista (opcional)
 → responder | omitir | tiempo agotado
-→ explicación (retroalimentación)
-→ fin de turno, siguiente jugador
+→ explicación y retroalimentación
+→ registro del resultado
+→ siguiente jugador
 ```
-Resultados posibles: `correct`, `incorrect`, `skipped`, `timed_out`. Un turno consume
-exactamente una pregunta respondida, omitida o vencida; los cambios no consumen turno.
+
+Resultados persistidos: `correct`, `incorrect`, `skipped` y `timed_out`.
 
 ### 6.3 Cambio de pregunta
-- Máximo **3 por participante y por turno**. El contador vuelve a 0 al comenzar su siguiente
-  turno; no se acumula.
-- La pregunta nueva es de la misma categoría y respeta la edad y la dificultad del jugador. La
-  descartada no reaparece en esa partida.
-- **El temporizador se reinicia** con la pregunta nueva.
-- No puntúa ni cuenta como omitida. Cada cambio se registra en `turn_swaps`.
-- El botón se deshabilita si no hay otra pregunta elegible.
-- El límite se aplica en el motor y, como tope, en la base de datos (`CHECK seq BETWEEN 1 AND 3`).
+
+-   Máximo **3 cambios por participante y por turno**.
+-   El contador vuelve a cero al comenzar el siguiente turno del
+    participante.
+-   La nueva pregunta conserva la categoría y respeta edad e idioma.
+-   La dificultad puede flexibilizarse según la política de selección.
+-   La pregunta descartada no debe repetirse durante la misma partida.
+-   El temporizador se reinicia con la pregunta nueva.
+-   El cambio no otorga ni resta puntos y queda registrado en
+    `turn_swaps`.
 
 ### 6.4 Pista
-- Opción de partida `hint_per_turn`: **0 (desactivada, valor por defecto)** o **1** (máximo una
-  por turno).
-- Elimina **dos alternativas incorrectas**, elegidas con el generador aleatorio sembrado de la
-  partida. Solo está disponible en preguntas con **4 o más alternativas**: con 3 la pista
-  dejaría únicamente la respuesta correcta, y el verdadero/falso queda excluido.
-- Sin penalización de puntos. Se guardan los ids eliminados.
-- **Una respuesta dada con pista no cuenta como evaluable** para fortalezas y competencias.
-- No detiene el temporizador. Si se cambia de pregunta después de usar la pista, esta ya se
-  consumió.
+
+-   Desactivada por defecto.
+-   Cuando se habilita, se permite una pista por turno.
+-   Elimina dos opciones incorrectas.
+-   Solo aplica a preguntas `single_choice` con cuatro o más opciones.
+-   No aplica a verdadero/falso.
+-   No modifica la puntuación ni detiene el temporizador.
+-   Las respuestas realizadas con pista no se consideran evaluables para
+    el perfil de competencias.
 
 ### 6.5 Temporizador
-- Opciones: **10, 15, 20, 30 y 45 segundos**, configurables **por jugador**.
-- Valores sugeridos al elegir la franja (editables): 4-6 → 45 s; 7-9 → 30 s; resto → 20 s.
-- El vencimiento lo decide el motor comparando marcas de un **reloj monótono**; si la interfaz
-  se retrasa, el resultado no cambia. `response_ms` mide desde que se muestra la pregunta
-  hasta la respuesta.
+
+Opciones previstas: **10, 15, 20, 30 y 45 segundos**, configurables por
+jugador.
+
+El vencimiento debe determinarlo el motor con un reloj monótono. La
+interfaz solo representa el tiempo restante.
 
 ### 6.6 Franjas de edad
-`4-6`, `7-9`, `10-12`, `13-15`, `16-17` y `18+` (equivalentes a los rangos de años 4–6, 7–9,
-10–12, 13–15, 16–17 y 18–99). Una pregunta guarda `age_min` y `age_max` en años y es elegible
-para una franja si ambos rangos se solapan. La edad es una restricción **dura**; la dificultad
-es **blanda**. Se guarda la franja, no la fecha de nacimiento.
+
+  Franja                     Edad
+  --------- ---------------------
+  `4-6`                     4 a 6
+  `7-9`                     7 a 9
+  `10-12`                 10 a 12
+  `13-15`                 13 a 15
+  `16-17`                 16 a 17
+  `18+`       18 años en adelante
+
+Las preguntas almacenan `age_min` y `age_max`. Cuando `age_max` es
+`null`, no existe límite superior. La elegibilidad se determina por el
+solapamiento entre el rango de la pregunta y el rango del jugador. La
+edad es una restricción obligatoria; la dificultad puede flexibilizarse
+si no hay preguntas disponibles.
+
+El rango editorial 8-10 utilizado en el primer paquete de Ciencias
+Naturales no crea una nueva franja del dominio: se representa mediante
+los límites individuales de cada pregunta.
 
 ## 7. Selección de preguntas y analítica
 
 ### 7.1 Selección
-1. Se filtran por categoría, estado `published`, idioma, solapamiento de edad y dificultad
-   exacta, excluyendo las ya vistas en la partida y las descartadas por cambio.
-2. Si no hay candidatas, la dificultad se amplía a ±1 y luego a ±2 (dentro de 1 a 3 en el MVP).
-3. Si el conjunto se agota, se permiten repeticiones eligiendo las menos recientes del jugador.
-4. Si aun así no hay ninguna que cumpla la edad, el motor lo informa y la interfaz lo muestra.
-   **Nunca se sirve una pregunta fuera de la franja.**
 
-Se usa el índice compuesto y muestreo sobre el subconjunto filtrado, nunca `ORDER BY RAND()`.
+1.  Filtrar por categoría, estado publicado, idioma, rango de edad y
+    dificultad solicitada.
+2.  Excluir las preguntas ya utilizadas o descartadas durante la
+    partida.
+3.  Si no hay candidatas, ampliar la dificultad según la política del
+    motor, sin relajar la edad.
+4.  Si no existen preguntas elegibles por edad, informar que no hay
+    contenido disponible.
+
+No se deben seleccionar preguntas fuera de la franja del jugador.
 
 ### 7.2 Resultados y clasificación
-- **Por jugador y partida:** puntuación, aciertos, errores, omitidas, tiempos agotados y tiempo
-  medio de respuesta.
-- **Respuesta evaluable:** resultado `correct` o `incorrect` **y sin pista**. Las omitidas y los
-  tiempos agotados no cuentan.
-- **Clasificación por competencia:** se calcula sobre el **historial acumulado** del jugador y
-  exige **al menos 5 respuestas evaluables** en esa competencia. Con menos, se muestra
-  "datos insuficientes".
-- **Umbrales por defecto (configurables):** 80 % o más → fortaleza; 50 % o menos → competencia
-  por reforzar; el resto → en progreso.
-- Limitación conocida: el MVP no pondera la dificultad al clasificar.
-- Expectativa realista: con 4 competencias de Matemáticas, el niño necesitará varias partidas
-  antes de que cada competencia alcance las 5 respuestas evaluables. La pantalla de una
-  partida muestra siempre las cifras de esa partida y solo clasifica cuando el acumulado lo
-  permite.
 
-## 8. Banco inicial de prueba
+Por jugador y partida se registrarán puntuación, aciertos, errores,
+omitidas, tiempos agotados y tiempo de respuesta.
 
-Entre **40 y 60 preguntas propias, validadas y con explicación**, entregadas como paquetes JSON.
+Una respuesta evaluable es `correct` o `incorrect` y no debe haber
+utilizado pista. La clasificación por competencia requiere al menos
+cinco respuestas evaluables acumuladas:
 
-**Distribución propuesta (56 preguntas; se confirmará al crear el banco):**
+-   80 % o más: fortaleza.
+-   50 % o menos: competencia por reforzar.
+-   Entre ambos valores: en progreso.
+-   Menos de cinco respuestas: datos insuficientes.
 
-| Categoría | Competencias | Total | 7-9 | 18+ |
-|---|---|---|---|---|
-| Matemáticas | 4 (numeración y cálculo; multiplicar y dividir; fracciones y medidas; geometría y razonamiento) | 20 | 12 | 8 |
-| Lengua y lectura | 2 | 12 | 6 | 6 |
-| Ciencias y naturaleza | 2 | 12 | 6 | 6 |
-| Cultura general | 2 | 12 | 6 | 6 |
-| **Total** | 10 | **56** | **30** | **26** |
+## 8. Banco inicial de preguntas
 
-Notas:
-- Dificultades 1 a 3 en cada franja (el esquema admite hasta 5).
-- Los adultos necesitan un volumen comparable al del niño en cada categoría, porque la ruleta
-  elige la categoría y cada jugador recibe una pregunta de su propia franja. Con tres jugadores,
-  los adultos consumen más preguntas en total que el niño.
-- Punto abierto para el diseño de la ruleta (no se implementa ahora): un peso de categoría
-  configurable para que Matemáticas salga con más frecuencia sin cambiar las reglas.
+El diseño aprobado contempló un banco de **40 a 60 preguntas propias**,
+con explicación, clasificación académica y adaptación por edad. La
+distribución inicial propuesta fue:
 
-## 9. Funcionamiento sin internet
+  Categoría                 Competencias   Total propuesto      7-9      18+
+  ----------------------- -------------- ----------------- -------- --------
+  Matemáticas                          4                20       12        8
+  Lengua y lectura                     2                12        6        6
+  Ciencias y naturaleza                2                12        6        6
+  Cultura general                      2                12        6        6
+  **Total**                       **10**            **56**   **30**   **26**
 
-Funciona sin conexión mientras el **servidor MySQL local esté disponible**.
+Esta tabla representa la distribución propuesta originalmente, no el
+inventario actual.
 
-- Fuentes, imágenes e iconos van en `assets/`. Sin CDN, telemetría ni llamadas externas en
-  ejecución.
-- MySQL escucha solo en `127.0.0.1`, con un usuario propio de la aplicación (no `root`) y
-  privilegios mínimos sobre el esquema de SABERIA.
-- Al arrancar, la aplicación comprueba la conexión y muestra un diagnóstico con reintento
-  (servicio detenido, credenciales, base inexistente, versión no soportada).
-- Fechas en UTC.
-- La instalación de dependencias necesita red una vez. Ninguna función del MVP requiere IA en
-  línea.
-- Pendiente de verificar en el equipo de desarrollo: que Flet no descargue componentes en el
-  primer arranque.
+### 8.1 Primer paquete aprobado
 
-## 9.1 Requisitos de MySQL
+El primer paquete editorial aprobado es **Ciencias Naturales**, con **35
+preguntas**. Se revisó por siete rangos editoriales:
 
-MySQL **8.0.16 o superior** (las restricciones `CHECK` se ignoran en silencio en versiones
-anteriores). MariaDB no está soportada. `database.py` lo comprueba al arrancar.
+-   4-6
+-   7-9
+-   8-10
+-   10-12
+-   13-15
+-   16-17
+-   18+
 
-## 10. Alcance exacto del MVP
+El rango 8-10 es una clasificación editorial y se expresa mediante
+`age_min` y `age_max`. Este paquete es el primer conjunto de contenido
+aprobado y no sustituye el objetivo de completar el banco mínimo general
+del MVP.
 
-**Incluye**
-- Perfiles de jugador (2 a 8 soportados; pruebas con 2 a 4) con franja de edad, dificultad (1–3)
-  y temporizador por jugador.
-- **Modo ruleta competitivo** con número de rondas configurable.
-- Opción múltiple con explicación tras responder, omitir, imagen opcional, cambio de pregunta y
-  pista opcional.
-- Puntuación +1 / 0.
-- Resultados y perfil acumulado según la sección 7.2.
-- Importación y exportación de paquetes JSON con validación.
-- Banco de 40–60 preguntas propias (sección 8).
-- Prueba completa con la red desconectada.
+## 9. Funcionamiento sin Internet
 
-**No incluye:** tablero (fase 2), modo cooperativo, generación con IA dentro de la aplicación,
-importación de fuentes abiertas, editor o administración de preguntas, voz o sonido, reanudar
-partidas, empaquetado e instalador, carga masiva del banco.
+SABERIA está diseñada para funcionar sin conexión a Internet durante las
+partidas, siempre que el servidor MariaDB local esté disponible.
 
-**Criterio de aceptación:** una partida de ruleta de 2 a 4 jugadores, de principio a fin y con
-la red desconectada, que guarde resultados correctos y los muestre, incluyendo cambio de
-pregunta, temporizador y perfil acumulado.
+-   Los recursos visuales deben almacenarse localmente.
+-   No se requieren servicios externos durante la ejecución.
+-   No se requiere IA en línea para jugar.
+-   La instalación inicial de dependencias puede requerir Internet.
+-   Las credenciales se cargan desde la configuración local y no deben
+    exponerse en registros.
 
-## 11. Orden de implementación
+## 10. Estado de implementación
 
-| # | Paso | Estado |
-|---|---|---|
-| 0 | Verificar el entorno local: Python, Flet (también sin red tras instalarlo), MySQL 8.0.16+, usuario de base de datos propio | Pendiente (en el equipo de desarrollo) |
-| 1 | Andamiaje: `pyproject.toml`, configuración, ventana mínima y diagnóstico de la base de datos | **Hecho en esta entrega** |
-| 2 | Dominio y enums, con pruebas | Pendiente |
-| 3 | Persistencia: ORM, migración inicial, repositorios y pruebas de integración | Pendiente |
-| 4 | Paquetes JSON: esquema, validador, importador, exportador y banco inicial | Pendiente |
-| 5 | Motor: reloj, selector, puntuación, ayudas, máquina de estados y ruleta | Pendiente |
-| 6 | Interfaz de la ruleta. **Hito:** partida de 2 jugadores completa | Pendiente |
-| 7 | Analítica y pantalla de resultados | Pendiente |
-| 8 | Interfaz de la pista y su activación | Pendiente |
-| 9 | Pruebas con 2 a 4 jugadores y prueba sin conexión | Pendiente |
+El estado se refiere a la implementación conocida y probada en el
+repositorio durante la actualización de este documento. No debe
+interpretarse como aceptación final del MVP.
 
-Línea de corte: si el tiempo se agota, la interfaz de la pista (paso 8) se difiere primero.
-**Fase 2:** `BoardMode` y su vista, definición del tablero en JSON y reglas del cooperativo.
+  -----------------------------------------------------------------------
+  Componente                          Estado
+  ----------------------------------- -----------------------------------
+  Configuración Python y entorno      Implementado
+  virtual                             
 
-## 12. Riesgos técnicos
+  Conexión con MariaDB 10.4.32        Configurada y verificada
 
-| Riesgo | Impacto | Mitigación |
-|---|---|---|
-| Servidor MySQL detenido o mal configurado en el equipo familiar | Alto | Diagnóstico al arrancar, usuario dedicado y documentación |
-| Flet descarga componentes en el primer arranque y rompe el uso sin conexión | Medio-alto | Verificarlo en el paso 0; documentar instalación desde caché local |
-| La API de Flet cambia entre versiones | Medio | Versión acotada en `pyproject.toml`; el código evita APIs inestables |
-| Banco pequeño: repeticiones y celdas vacías | Medio-alto | Concentrar preguntas en 7-9 y 18+, política de respaldo, mensajes claros |
-| Umbral de 5 respuestas rara vez alcanzado | Medio | Clasificación sobre el acumulado y "datos insuficientes" visible |
-| Abuso del cambio de pregunta o de la pista | Medio | Límite por turno, pista desactivada por defecto y registro para medirlos |
-| Tiempo medido con la latencia de la interfaz | Medio | Reloj monótono en el motor y pregunta precargada |
-| `CHECK` ignorados en MySQL anterior a 8.0.16 | Medio | Comprobar versión al arrancar y validar también en el motor |
-| Portabilidad si la distribución final no admite MySQL | Medio | SQL portable, PyMySQL en Python puro y repositorios tras interfaces |
-| Autenticación de MySQL 8 con PyMySQL | Medio | Dependencia `PyMySQL[rsa]` (instala `cryptography`) |
-| Calidad del contenido | Alto | Preguntas propias revisadas, con explicación obligatoria |
-| Privacidad de menores | Medio | Todo local, solo franja de edad, perfiles archivables, paquetes sin datos de jugadores |
-| Ampliación del alcance | Medio | Hito intermedio tras la ruleta; tablero fuera del MVP |
+  Base de datos `saberiadb`           Configurada
 
-## 13. Supuestos adoptados
+  Migraciones Alembic                 Implementadas y aplicadas
 
-- Tiempo agotado y omitida no son evaluables.
-- La pista queda fuera del cálculo de fortalezas y competencias.
-- Umbrales: 80 % fortaleza, 50 % o menos por reforzar, 5 respuestas mínimas.
-- El temporizador se reinicia al cambiar de pregunta.
-- Empate: victoria compartida.
-- Los resultados educativos se calculan sobre el historial acumulado.
-- Temporizador por jugador con valores sugeridos por franja.
+  Modelos ORM                         Implementados (12 modelos)
 
-## 14. Flujo de trabajo en Git
+  Entidades, enumeraciones y reglas   Implementadas
+  de dominio                          
 
-- La rama por defecto actual del repositorio se llama `https/github.com/JNEON/SABERIA` (nombre
-  inusual, probablemente un error al crear el repositorio). **No se ha renombrado**; conviene
-  renombrarla a `main` antes de integrar cambios.
-- Los cambios se desarrollan en ramas independientes (`feature/...`) y se revisan antes de
-  integrarse. Nada se integra directamente en la rama por defecto.
+  Pruebas automatizadas existentes    101 aprobadas y 4 omitidas en la
+                                      última ejecución reportada
+
+  Contrato de paquetes JSON           Implementado
+
+  Validador de paquetes JSON          Implementado
+
+  Cargador de paquetes JSON           Implementado
+
+  Paquete de Ciencias Naturales       35 preguntas aprobadas
+                                      editorialmente
+
+  Repositorios de persistencia        Pendiente de completar
+
+  Importación transaccional JSON a    Pendiente
+  MariaDB                             
+
+  Exportación JSON desde la base de   Pendiente
+  datos                               
+
+  Motor de juego completo             Pendiente
+
+  Ruleta funcional                    Pendiente
+
+  Interfaz completa de partida        Pendiente
+
+  Analítica integrada en la interfaz  Pendiente
+
+  Prueba integral del MVP sin         Pendiente
+  Internet                            
+  -----------------------------------------------------------------------
+
+Los resultados de pruebas indicados corresponden a la última ejecución
+comunicada y deben actualizarse cuando se realice una nueva ejecución.
+
+## 11. Alcance del MVP
+
+### Incluye
+
+-   Perfiles de 2 a 8 jugadores en el modelo; pruebas iniciales con 2 a
+    4.
+-   Configuración de franja de edad, dificultad y temporizador por
+    jugador.
+-   Modo ruleta competitivo.
+-   Preguntas de selección única y verdadero/falso.
+-   Explicación después de responder.
+-   Cambio de pregunta y pista opcional.
+-   Puntuación +1 / 0.
+-   Registro de resultados.
+-   Perfil acumulado por competencia.
+-   Validación de paquetes de preguntas.
+-   Importación y exportación de paquetes JSON cuando se complete el
+    módulo correspondiente.
+-   Funcionamiento sin Internet durante la partida.
+
+### Fuera del MVP
+
+-   Tablero.
+-   Modo cooperativo.
+-   Generación de preguntas con IA dentro de la aplicación.
+-   Sincronización en la nube y API remota.
+-   Cuentas en línea.
+-   Voz y sonido.
+-   Funciones administrativas avanzadas de edición de preguntas.
+
+### Criterio de aceptación
+
+Una partida de ruleta completa con dos a cuatro participantes, desde la
+configuración hasta los resultados, que funcione sin Internet, respete
+las reglas de edad y dificultad, registre los turnos y presente
+puntuación y resultados.
+
+## 12. Orden de desarrollo pendiente
+
+1.  Completar los repositorios necesarios para los casos de uso del MVP.
+2.  Diseñar e implementar la importación transaccional e idempotente de
+    paquetes JSON.
+3.  Implementar la exportación de paquetes.
+4.  Completar pruebas de integración de persistencia.
+5.  Implementar el selector de preguntas.
+6.  Implementar el ciclo de turnos, puntuación y reloj.
+7.  Implementar cambios de pregunta y pistas.
+8.  Implementar la ruleta.
+9.  Construir la interfaz de partida.
+10. Integrar resultados y analítica.
+11. Ejecutar pruebas integrales con dos a cuatro participantes.
+12. Verificar el funcionamiento sin conexión.
+
+## 13. Riesgos técnicos
+
+  -----------------------------------------------------------------------
+  Riesgo                              Mitigación
+  ----------------------------------- -----------------------------------
+  MariaDB no disponible               Diagnóstico de conexión y guía de
+                                      instalación
+
+  Paquete JSON inválido               Validar antes de iniciar cualquier
+                                      importación
+
+  Preguntas insuficientes por edad    Ampliar contenido; nunca relajar la
+                                      edad
+
+  Repetición de preguntas             Registrar preguntas utilizadas y
+                                      descartadas
+
+  Reglas dentro de la interfaz        Mantener el motor independiente y
+                                      probarlo
+
+  Contenido ambiguo o incorrecto      Revisión editorial y explicación
+                                      obligatoria
+
+  Exposición de datos de menores      Funcionamiento local y
+                                      almacenamiento de franja, no fecha
+                                      de nacimiento
+
+  Crecimiento del alcance             Priorizar el MVP jugable y diferir
+                                      fase 2
+  -----------------------------------------------------------------------
+
+## 14. Flujo de trabajo
+
+Cada módulo de desarrollo debe incluir implementación completa de la
+funcionalidad acordada, pruebas automatizadas, validación de calidad,
+documentación actualizada y criterios de aceptación verificables. Los
+cambios se revisan y prueban antes de integrarse en la rama principal.

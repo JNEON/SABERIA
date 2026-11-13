@@ -1,179 +1,463 @@
-# SABERIA — Formato de paquetes de preguntas (JSON)
+# SABERIA --- Formato de paquetes de preguntas (JSON)
 
-> **Versión 1 del formato (`format_version: 1`).** Este documento define el contrato. El esquema
-> formal (`content/schema/`), el validador, el importador y el exportador **aún no están
-> implementados** (paso 4 del plan de implementación).
-> Ver también: [data-model.md](data-model.md) · [architecture.md](architecture.md)
+> **Versión 1.0 del contrato implementado.**
+>
+> Este documento describe el contrato definido en
+> `src/saberia/content/schema.py`. La validación está en
+> `src/saberia/content/validator.py` y la lectura de archivos en
+> `src/saberia/content/package_loader.py`.
+>
+> **Importante:** validar y leer un JSON no significa que sus preguntas
+> hayan sido importadas a MariaDB ni publicadas.
+>
+> Documentos relacionados: [data-model.md](data-model.md) ·
+> [architecture.md](architecture.md)
 
 ## 1. Propósito
 
-JSON se usa **solo** para importar y exportar preguntas; la base de datos principal es MySQL.
-Todo el contenido (también las preguntas propias) entra por paquetes, de modo que
-procedencia, licencia y validación se tratan igual sea cual sea el origen.
+SABERIA utiliza paquetes JSON para organizar, validar e intercambiar
+preguntas educativas. El paquete es independiente del esquema físico de
+MariaDB y contiene metadatos, procedencia, taxonomía y preguntas.
 
-Un paquete es un archivo `.json` en UTF-8 que contiene una fuente, categorías, competencias y
-preguntas.
+Los archivos se leen como JSON codificado en UTF-8.
 
-## 2. Estructura
+## 2. Estructura general
 
-```json
+La raíz del paquete contiene exactamente estos componentes:
+
+-   `schema_version`
+-   `package`
+-   `source`
+-   `taxonomy`
+-   `questions`
+
+La taxonomía es jerárquica: **categoría → tema → competencia**. Cada
+pregunta referencia esa ruta mediante `category_code`, `topic_code` y
+`competency_code`.
+
+## 3. Ejemplo conforme al contrato
+
+El siguiente ejemplo ilustra la estructura actual. Los valores son
+demostrativos.
+
+``` json
 {
-  "format_version": 1,
+  "schema_version": "1.0",
   "package": {
-    "uid": "6f9c2a3e-8d41-4b7a-9d57-0c1b2a3d4e5f",
-    "name": "Banco inicial de prueba",
-    "version": "1.0.0",
-    "language": "es",
-    "created_at": "2026-11-08T00:00:00Z"
+    "package_uid": "6f9c2a3e-8d41-4b7a-9d57-0c1b2a3d4e5f",
+    "name": "Ciencias Naturales",
+    "version": "1.0.0"
   },
   "source": {
-    "name": "Preguntas propias de SABERIA",
-    "license_code": "LicenseRef-SABERIA-Own",
+    "name": "SABERIA - Banco interno de preguntas",
+    "license_code": "PROPRIETARY_INTERNAL",
     "license_url": null,
-    "attribution_text": null,
+    "attribution_text": "Contenido propio del proyecto SABERIA",
     "url": null
   },
-  "categories": [
-    { "code": "math", "name": "Matemáticas", "sort_order": 1 }
-  ],
-  "competencies": [
-    {
-      "code": "math.add_sub",
-      "category": "math",
-      "name": "Numeración y cálculo",
-      "description": "Suma y resta, valor posicional"
-    }
-  ],
+  "taxonomy": {
+    "categories": [
+      {
+        "code": "ciencias_naturales",
+        "name": "Ciencias Naturales",
+        "topics": [
+          {
+            "code": "seres_vivos",
+            "name": "Seres vivos",
+            "competencies": [
+              {
+                "code": "clasificacion_seres_vivos",
+                "name": "Clasificación de los seres vivos",
+                "description": "Identificación y clasificación de seres vivos"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
   "questions": [
     {
-      "external_id": "math-0001",
-      "category": "math",
-      "competency": "math.add_sub",
-      "type": "single_choice",
-      "prompt": "¿Cuánto es 48 + 27?",
-      "explanation": "48 + 27 = 75: 40 + 20 = 60 y 8 + 7 = 15; 60 + 15 = 75.",
-      "media": null,
+      "external_id": "CN-0001",
+      "category_code": "ciencias_naturales",
+      "topic_code": "seres_vivos",
+      "competency_code": "clasificacion_seres_vivos",
+      "language": "es",
+      "qtype": "single_choice",
+      "prompt": "¿Cuál de estos animales es un mamífero?",
+      "explanation": "Los mamíferos alimentan a sus crías con leche materna.",
       "age_min": 7,
       "age_max": 9,
       "difficulty": 1,
       "origin": "own",
-      "status": "published",
-      "validated_by": "Nombre del revisor",
-      "validated_at": "2026-11-08T00:00:00Z",
+      "media_path": null,
       "options": [
-        { "text": "65", "correct": false },
-        { "text": "75", "correct": true },
-        { "text": "85", "correct": false },
-        { "text": "74", "correct": false }
+        {"text": "Rana", "is_correct": false},
+        {"text": "Perro", "is_correct": true},
+        {"text": "Pez", "is_correct": false},
+        {"text": "Mariposa", "is_correct": false}
       ]
     }
   ]
 }
 ```
 
-(El ejemplo es ilustrativo; los valores de UUID, fechas y nombre del revisor son de muestra.)
+## 4. Definición de campos
 
-## 3. Campos
+### 4.1 Raíz
 
-### 3.1 Raíz
-| Campo | Obligatorio | Descripción |
-|---|---|---|
-| `format_version` | Sí | Entero. Por ahora `1`. Un formato desconocido se rechaza |
-| `package` | Sí | Identidad del paquete |
-| `source` | Sí | Procedencia y licencia |
-| `categories` | Sí | Categorías usadas por las preguntas |
-| `competencies` | Sí | Competencias usadas por las preguntas |
-| `questions` | Sí | Lista de preguntas (puede estar vacía) |
+  ------------------------------------------------------------------------
+  Campo              Tipo              Obligatorio       Descripción
+  ------------------ ----------------- ----------------- -----------------
+  `schema_version`   texto             Sí                Versión del
+                                                         contrato;
+                                                         actualmente `1.0`
 
-### 3.2 `package`
-| Campo | Obligatorio | Regla |
-|---|---|---|
-| `uid` | Sí | UUID. Identifica el paquete entre versiones |
-| `name` | Sí | Hasta 120 caracteres |
-| `version` | Sí | Texto de versión (por ejemplo `1.0.0`), hasta 20 caracteres |
-| `language` | Sí | Código de idioma (`es`). Todas las preguntas del paquete comparten idioma |
-| `created_at` | No | Fecha ISO 8601 en UTC |
+  `package`          objeto            Sí                Identificación
+                                                         del paquete
 
-### 3.3 `source`
-| Campo | Obligatorio | Regla |
-|---|---|---|
-| `name` | Sí | |
-| `license_code` | Sí | SPDX cuando exista (`CC-BY-4.0`, `CC-BY-SA-4.0`, `CC0-1.0`) o `LicenseRef-SABERIA-Own` para contenido propio |
-| `license_url` | No | |
-| `attribution_text` | Condicional | **Obligatorio** si la licencia exige atribución (familia `CC-BY`) |
-| `url` | No | |
+  `source`           objeto            Sí                Procedencia y
+                                                         licencia
 
-### 3.4 `categories` y `competencies`
-- `categories[].code`: identificador estable (minúsculas, dígitos, `_`). `name`, `sort_order`.
-- `competencies[].code`: identificador estable con prefijo de categoría (`math.add_sub`).
-  `category` debe ser un `code` de `categories`.
+  `taxonomy`         objeto            Sí                Taxonomía
+                                                         académica
 
-### 3.5 `questions[]`
-| Campo | Obligatorio | Regla |
-|---|---|---|
-| `external_id` | Sí | Único **dentro del paquete** (hasta 64 caracteres). Es la clave de idempotencia |
-| `category` / `competency` | Sí | Códigos definidos en el mismo paquete; la competencia debe pertenecer a la categoría |
-| `type` | Sí | `single_choice` (el verdadero/falso es una pregunta de dos opciones) |
-| `prompt` | Sí | 1 a 500 caracteres |
-| `explanation` | Condicional | 1 a 1000 caracteres. **Obligatoria si `status` es `published`** (retroalimentación educativa) |
-| `media` | No | Ruta **relativa** dentro de `assets/` (por ejemplo `media/math/0001.png`). Sin `..`, sin rutas absolutas ni URL |
-| `age_min`, `age_max` | Sí | Enteros 4 a 99, con `age_min <= age_max` |
-| `difficulty` | Sí | Entero 1 a 5 (el MVP usa 1 a 3) |
-| `origin` | Sí | `own`, `open_source` o `ai_assisted` |
-| `status` | Sí | `draft`, `validated`, `published` o `retired` |
-| `validated_by`, `validated_at` | Condicional | **Obligatorios** si `origin = ai_assisted` y `status = published` |
-| `options` | Sí | De 2 a 6 elementos `{ "text", "correct" }` |
+  `questions`        lista             Sí                Preguntas
+                                                         incluidas
+  ------------------------------------------------------------------------
 
-## 4. Reglas de validación
+### 4.2 `package`
 
-El validador debe rechazar el paquete completo (sin importar nada) si hay errores, e informar
-**todos** los errores con su ruta (por ejemplo `questions[12].options`), no solo el primero.
+  -----------------------------------------------------------------------
+  Campo             Tipo              Obligatorio       Regla
+  ----------------- ----------------- ----------------- -----------------
+  `package_uid`     texto             Sí                Identificador
+                                                        UUID
 
-1. `format_version` conocido y estructura completa.
-2. `external_id` únicos dentro del paquete; códigos de categoría y competencia únicos y
-   coherentes entre sí.
-3. Cada pregunta tiene **una y solo una** opción correcta, entre 2 y 6 opciones, sin textos
-   vacíos ni opciones duplicadas.
-4. `age_min <= age_max`, rangos y dificultad dentro de los límites.
-5. `explanation` presente en las publicadas; `validated_by` y `validated_at` en las
-   `ai_assisted` publicadas.
-6. Licencia y, cuando se exija, atribución presentes.
-7. `media` solo con rutas relativas seguras.
-8. Longitudes máximas respetadas: `prompt` 500, `explanation` 1000, texto de cada opción 255.
-9. **Pista:** solo se ofrece en preguntas con **4 o más opciones** (elimina dos incorrectas y deja
-   dos). Una pregunta con menos opciones es válida, pero no admite pista.
-10. Duplicados: se avisa (no se rechaza) cuando el `content_hash` coincide con otra pregunta ya
-    existente.
+  `name`            texto             Sí                Nombre del
+                                                        paquete; máximo
+                                                        120 caracteres
 
-### 4.1 `content_hash`
-SHA-256 del texto normalizado: el `prompt` más las opciones ordenadas alfabéticamente, cada
-parte en Unicode NFC, en minúsculas y con espacios colapsados. No depende del orden de las
-opciones ni de `external_id`.
+  `version`         texto             Sí                Versión con
+                                                        formato `X.Y.Z`;
+                                                        máximo 20
+                                                        caracteres
+  -----------------------------------------------------------------------
 
-## 5. Importación
+### 4.3 `source`
 
-- **Idempotente.** Un mismo paquete (`uid` + `version` + `checksum_sha256`) importado dos veces
-  no duplica nada.
-- Mismo `uid` y `version` con checksum distinto: **error** (se debe subir la versión).
-- Versión nueva del mismo `uid`: las preguntas cuyo contenido cambió se insertan como
-  **versiones nuevas** (`replaces_question_id`) y las anteriores pasan a `retired`. Una pregunta
-  publicada nunca se edita en el sitio, para no alterar el historial de partidas.
-- Las preguntas `draft` y `validated` se importan pero **nunca se sirven** en una partida; solo
-  las `published`.
-- La importación es transaccional por paquete. Los paquetes grandes se procesan por lotes
-  (se recomienda dividirlos en archivos de unas 5.000 preguntas) para soportar más de 100.000
-  preguntas sin cargarlas todas en memoria.
-- Las preguntas con `origin = ai_assisted` deben llegar como `draft` y publicarse solo tras la
-  validación humana.
+  --------------------------------------------------------------------------
+  Campo                Tipo              Obligatorio       Regla
+  -------------------- ----------------- ----------------- -----------------
+  `name`               texto             Sí                Nombre de la
+                                                           fuente; máximo
+                                                           120 caracteres
 
-## 6. Exportación
+  `license_code`       texto             Sí                Código de
+                                                           licencia; máximo
+                                                           60 caracteres
 
-El exportador produce un paquete con este mismo formato. **No incluye datos de jugadores ni de
-partidas**: solo contenido.
+  `license_url`        texto o `null`    No                URL de la
+                                                           licencia; máximo
+                                                           255 caracteres
 
-## 7. Banco inicial del MVP
+  `attribution_text`   texto o `null`    No                Atribución;
+                                                           máximo 500
+                                                           caracteres
 
-Entre 40 y 60 preguntas propias, validadas y con explicación. Se concentra en las franjas
-**7-9** y **18+** (primeras pruebas con un niño de 9 años y dos adultos), con más peso en
-Matemáticas. Detalle de la distribución en
-[architecture.md](architecture.md#8-banco-inicial-de-prueba).
+  `url`                texto o `null`    No                URL de
+                                                           procedencia;
+                                                           máximo 255
+                                                           caracteres
+  --------------------------------------------------------------------------
+
+Para el contenido interno del proyecto se ha definido como referencia:
+
+-   `name`: `SABERIA - Banco interno de preguntas`
+-   `license_code`: `PROPRIETARY_INTERNAL`
+-   `attribution_text`: `Contenido propio del proyecto SABERIA`
+
+### 4.4 `taxonomy`
+
+`taxonomy` contiene una lista `categories`.
+
+Cada categoría contiene:
+
+  Campo      Tipo    Obligatorio     Máximo
+  ---------- ------- ------------- --------
+  `code`     texto   Sí                  40
+  `name`     texto   Sí                  80
+  `topics`   lista   Sí                 ---
+
+Cada tema contiene:
+
+  Campo            Tipo             Obligatorio     Máximo
+  ---------------- ---------------- ------------- --------
+  `code`           texto            Sí                  60
+  `name`           texto            Sí                 100
+  `competencies`   lista            Sí                 ---
+  `description`    texto o `null`   No                 255
+
+Cada competencia contiene:
+
+  Campo           Tipo             Obligatorio     Máximo
+  --------------- ---------------- ------------- --------
+  `code`          texto            Sí                  60
+  `name`          texto            Sí                 100
+  `description`   texto o `null`   No                 255
+
+Los códigos se interpretan dentro de su nivel jerárquico. La ruta
+completa de una competencia se identifica mediante `category_code`,
+`topic_code` y `competency_code`.
+
+### 4.5 `questions[]`
+
+  -------------------------------------------------------------------------
+  Campo               Tipo              Obligatorio       Regla
+  ------------------- ----------------- ----------------- -----------------
+  `external_id`       texto             Sí                Máximo 64
+                                                          caracteres; único
+                                                          en el paquete
+
+  `category_code`     texto             Sí                Código de
+                                                          categoría
+                                                          declarado
+
+  `topic_code`        texto             Sí                Código de tema
+                                                          perteneciente a
+                                                          la categoría
+
+  `competency_code`   texto             Sí                Código de
+                                                          competencia
+                                                          perteneciente al
+                                                          tema
+
+  `language`          texto             Sí                Máximo 8
+                                                          caracteres
+
+  `qtype`             texto             Sí                `single_choice` o
+                                                          `true_false`
+
+  `prompt`            texto             Sí                Máximo 500
+                                                          caracteres
+
+  `explanation`       texto             Sí                Máximo 1000
+                                                          caracteres
+
+  `age_min`           entero            Sí                Edad mínima; no
+                                                          inferior a 4
+
+  `age_max`           entero o `null`   Sí                Edad máxima;
+                                                          `null` significa
+                                                          sin límite
+                                                          superior
+
+  `difficulty`        entero            Sí                Valor de 1 a 5
+
+  `origin`            texto             Sí                `own`,
+                                                          `open_source` o
+                                                          `ai_assisted`
+
+  `options`           lista             Sí                Opciones de
+                                                          respuesta
+
+  `media_path`        texto o `null`    No                Ruta relativa;
+                                                          máximo 255
+                                                          caracteres
+  -------------------------------------------------------------------------
+
+`external_id` identifica la pregunta dentro del paquete. No es el
+identificador numérico de la tabla `questions`.
+
+### 4.6 Tipos de pregunta
+
+  ------------------------------------------------------------------------
+  Valor `qtype`         Significado                   Cantidad de opciones
+  --------------------- --------------------- ----------------------------
+  `single_choice`       Selección de una                          De 2 a 6
+                        única respuesta       
+                        correcta              
+
+  `true_false`          Verdadero o falso                    Exactamente 2
+  ------------------------------------------------------------------------
+
+### 4.7 Opciones
+
+Cada elemento de `options` contiene:
+
+  Campo          Tipo       Obligatorio             Máximo
+  -------------- ---------- ------------- ----------------
+  `text`         texto      Sí              255 caracteres
+  `is_correct`   booleano   Sí                         ---
+
+Cada pregunta debe tener exactamente una opción correcta. Los textos de
+las opciones no deben estar vacíos ni repetirse dentro de la pregunta.
+
+## 5. Valores permitidos y reglas
+
+### 5.1 Procedencia
+
+`origin` admite:
+
+-   `own`: contenido propio.
+-   `open_source`: contenido procedente de fuentes abiertas.
+-   `ai_assisted`: contenido elaborado con asistencia de IA.
+
+La revisión humana y el estado de publicación se gestionan en el flujo
+de aplicación y persistencia. No son campos del contrato JSON actual.
+
+### 5.2 Edad
+
+-   `age_min` debe ser un entero igual o superior a 4.
+-   `age_max` puede ser un entero o `null`.
+-   Cuando `age_max` es un entero, `age_min` no puede superarlo.
+-   `age_max: null` representa un límite superior abierto.
+
+Los rangos editoriales de contenido no crean automáticamente nuevas
+franjas en el dominio. Por ejemplo, el rango editorial 8-10 se
+representa con `age_min: 8` y `age_max: 10`.
+
+### 5.3 Dificultad
+
+    Valor Nivel
+  ------- ------------
+        1 Muy básica
+        2 Básica
+        3 Intermedia
+        4 Avanzada
+        5 Experta
+
+El contrato admite los cinco niveles, aunque el alcance inicial del
+juego puede utilizar un subconjunto.
+
+## 6. Límites de longitud
+
+Los límites deben mantenerse sincronizados con `FIELD_LIMITS` en
+`schema.py`.
+
+  Campo                         Máximo
+  --------------------------- --------
+  `package.name`                   120
+  `package.version`                 20
+  `source.name`                    120
+  `source.license_code`             60
+  `source.license_url`             255
+  `source.attribution_text`        500
+  `source.url`                     255
+  `category.code`                   40
+  `category.name`                   80
+  `topic.code`                      60
+  `topic.name`                     100
+  `topic.description`              255
+  `competency.code`                 60
+  `competency.name`                100
+  `competency.description`         255
+  `external_id`                     64
+  `language`                         8
+  `qtype`                           16
+  `prompt`                         500
+  `explanation`                   1000
+  `media_path`                     255
+  `origin`                          16
+  `option.text`                    255
+
+## 7. Validación del paquete
+
+El validador de `src/saberia/content/validator.py` comprueba, entre
+otros aspectos:
+
+-   Estructura y campos requeridos del paquete.
+-   Versión de contrato admitida.
+-   Tipos de datos y longitudes máximas.
+-   UUID y versión del paquete.
+-   Estructura de categoría, tema y competencia.
+-   Unicidad de códigos dentro de su ámbito.
+-   Correspondencia de la ruta taxonómica de cada pregunta.
+-   Identificadores externos no repetidos.
+-   Tipo de pregunta permitido.
+-   Enunciado y explicación.
+-   Rango de edad y dificultad.
+-   Procedencia permitida.
+-   Cantidad de opciones según el tipo.
+-   Existencia de exactamente una opción correcta.
+-   Textos de opciones no vacíos ni duplicados.
+
+Los errores deben permitir identificar la ubicación del dato inválido,
+por ejemplo `questions[2].age_min` o `questions[4].options`.
+
+## 8. Lectura de paquetes
+
+`src/saberia/content/package_loader.py`:
+
+1.  Recibe la ruta del archivo JSON.
+2.  Lee el archivo en UTF-8.
+3.  Interpreta el JSON.
+4.  Gestiona errores de lectura, decodificación o sintaxis.
+5.  Ejecuta `validate_package`.
+6.  Informa los errores encontrados.
+7.  Devuelve los datos cuando el paquete es válido.
+
+El cargador no escribe registros en MariaDB.
+
+## 9. Campos de persistencia que no pertenecen al JSON actual
+
+El modelo de persistencia contempla campos de control del ciclo de vida
+de la pregunta, entre ellos `status`, `validated_by` y `validated_at`.
+**Estos campos no forman parte de `QuestionData` en el contrato JSON 1.0
+implementado.**
+
+No se deben agregar a un paquete JSON bajo la versión actual. Su
+asignación deberá definirse en el servicio de importación/publicación.
+
+En particular, las preguntas `ai_assisted` requieren una política de
+validación humana antes de publicarse. La forma de registrar quién
+validó y cuándo debe resolverse en la aplicación.
+
+## 10. Relación con la base de datos
+
+La correspondencia conceptual es:
+
+  Contrato JSON                                   Persistencia
+  ----------------------------------------------- ---------------------
+  `package`                                       `question_packages`
+  `source`                                        `question_sources`
+  `taxonomy.categories`                           `categories`
+  `taxonomy.categories[].topics`                  `topics`
+  `taxonomy.categories[].topics[].competencies`   `competencies`
+  `questions`                                     `questions`
+  `questions[].options`                           `question_options`
+
+La resolución de los códigos de taxonomía a identificadores internos
+corresponde al proceso de importación, que es independiente del
+validador y cargador actuales.
+
+## 11. Importación y exportación: estado
+
+La validación y lectura JSON están implementadas. La importación
+transaccional a MariaDB y la exportación desde la base de datos son
+funcionalidades separadas que deben implementarse.
+
+El diseño futuro de importación debe definir, antes de codificarse:
+
+-   Identificación y versionado del paquete.
+-   Cálculo y uso del checksum.
+-   Idempotencia y tratamiento de paquetes repetidos.
+-   Resolución de fuentes y taxonomía.
+-   Asignación de estado de pregunta.
+-   Validación humana de contenido asistido por IA.
+-   Transacción completa o reversión ante errores.
+-   Política para preguntas modificadas y versiones anteriores.
+
+Este documento no declara esas operaciones como implementadas.
+
+## 12. Banco inicial
+
+El primer paquete aprobado editorialmente es **Ciencias Naturales**, con
+**35 preguntas**. Su clasificación editorial contempla los rangos 4-6,
+7-9, 8-10, 10-12, 13-15, 16-17 y 18+.
+
+El rango 8-10 se representa en cada pregunta mediante sus límites de
+edad; no es una nueva franja de la enumeración del dominio.
+
+El objetivo general de 40 a 60 preguntas del MVP sigue siendo una meta
+de banco total y no debe confundirse con el tamaño del primer paquete.

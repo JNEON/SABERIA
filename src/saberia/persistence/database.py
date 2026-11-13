@@ -1,14 +1,15 @@
-"""Conexión con MySQL y comprobación de entorno.
+"""Conexión con MySQL/MariaDB y gestión de sesiones de SABERIA.
 
-SQLAlchemy se importa de forma diferida: así este módulo (y sus pruebas) no
-exigen tener instaladas las librerías de base de datos.
+SQLAlchemy se importa de forma diferida cuando es posible para que las
+comprobaciones básicas no exijan tener instaladas las librerías de BD.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -17,12 +18,11 @@ from saberia.config.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-# Las restricciones CHECK del modelo de datos solo se aplican desde MySQL 8.0.16.
 MIN_MYSQL_VERSION: tuple[int, int, int] = (8, 0, 16)
+MIN_MARIADB_VERSION: tuple[int, int, int] = (10, 2, 1)
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
 
-# Códigos de error de MySQL/PyMySQL.
 _AUTH_ERRORS = {1044, 1045}
 _UNKNOWN_DATABASE = 1049
 _UNREACHABLE_ERRORS = {2002, 2003, 2006, 2013}
@@ -39,7 +39,7 @@ class ErrorKind(Enum):
 
 @dataclass(frozen=True)
 class ConnectionResult:
-    """Resultado de la comprobación. ``message`` está pensado para mostrarse al usuario."""
+    """Resultado de la comprobación de conexión."""
 
     ok: bool
     message: str
@@ -48,16 +48,15 @@ class ConnectionResult:
 
 
 def parse_mysql_version(raw: str) -> tuple[int, int, int] | None:
-    """Extrae (mayor, menor, parche) de cadenas como ``8.0.36-0ubuntu0.22.04.1``."""
+    """Extrae la versión numérica de MySQL o MariaDB."""
     match = _VERSION_RE.match(raw.strip())
     if not match:
         return None
-    major, minor, patch = (int(part) for part in match.groups())
-    return major, minor, patch
+    return tuple(int(part) for part in match.groups())
 
 
 def build_url(settings: Settings) -> Any:
-    """URL de SQLAlchemy para PyMySQL. La contraseña se escapa correctamente."""
+    """Construye la URL SQLAlchemy sin exponer la contraseña."""
     from sqlalchemy.engine import URL
 
     return URL.create(
@@ -71,15 +70,54 @@ def build_url(settings: Settings) -> Any:
     )
 
 
-def fetch_server_version(settings: Settings) -> str:
-    """Abre una conexión de prueba y devuelve ``SELECT VERSION()``."""
-    from sqlalchemy import create_engine, text
+def create_engine_from_settings(settings: Settings) -> Any:
+    """Crea un motor SQLAlchemy con la configuración de SABERIA."""
+    from sqlalchemy import create_engine
 
-    engine = create_engine(
+    return create_engine(
         build_url(settings),
         connect_args={"connect_timeout": settings.db_connect_timeout},
         pool_pre_ping=True,
     )
+
+
+def create_session_factory(engine: Any) -> Any:
+    """Crea una fábrica de sesiones asociada al motor o conexión recibida."""
+    from sqlalchemy.orm import sessionmaker
+
+    return sessionmaker(
+        bind=engine,
+        autoflush=True,
+        expire_on_commit=False,
+    )
+
+
+@contextmanager
+def session_scope(session_factory: Any) -> Iterator[Any]:
+    """Administra una sesión y su transacción.
+
+    Confirma si el bloque termina correctamente.
+    Revierte si ocurre una excepción.
+    Cierra siempre la sesión.
+    """
+    session = session_factory()
+
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def fetch_server_version(settings: Settings) -> str:
+    """Abre una conexión de prueba y devuelve SELECT VERSION()."""
+    from sqlalchemy import text
+
+    engine = create_engine_from_settings(settings)
+
     try:
         with engine.connect() as connection:
             return str(connection.execute(text("SELECT VERSION()")).scalar_one())
@@ -91,12 +129,9 @@ def check_connection(
     settings: Settings,
     fetch_version: Callable[[Settings], str] | None = None,
 ) -> ConnectionResult:
-    """Comprueba que MySQL responde, que existe la base de datos y que la versión es válida.
-
-    ``fetch_version`` permite inyectar otra implementación (útil en pruebas).
-    Nunca lanza excepciones por fallos de conexión: los devuelve en el resultado.
-    """
+    """Comprueba conexión, existencia de BD y versión compatible."""
     fetch = fetch_version or fetch_server_version
+
     try:
         raw_version = fetch(settings)
     except ImportError as exc:
@@ -107,21 +142,27 @@ def check_connection(
             message=f'Falta {missing}. Instala el proyecto con: pip install -e ".[dev]"',
             error_kind=ErrorKind.DRIVER_MISSING,
         )
-    except Exception as exc:  # noqa: BLE001 - se traduce siempre a un resultado legible
+    except Exception as exc:  # noqa: BLE001
         logger.debug("Fallo de conexión", exc_info=True)
         return _failure_from_exception(exc, settings)
+
     return _evaluate_version(raw_version)
 
 
 def _mysql_error_code(exc: BaseException) -> int | None:
     original = getattr(exc, "orig", exc)
     args = getattr(original, "args", ())
+
     if args and isinstance(args[0], int):
         return args[0]
+
     return None
 
 
-def _failure_from_exception(exc: BaseException, settings: Settings) -> ConnectionResult:
+def _failure_from_exception(
+    exc: BaseException,
+    settings: Settings,
+) -> ConnectionResult:
     code = _mysql_error_code(exc)
     where = f"{settings.db_host}:{settings.db_port}"
 
@@ -129,12 +170,13 @@ def _failure_from_exception(exc: BaseException, settings: Settings) -> Connectio
         return ConnectionResult(
             ok=False,
             message=(
-                f"Acceso denegado para el usuario '{settings.db_user}' en la base "
-                f"'{settings.db_name}'. Revisa SABERIA_DB_USER, SABERIA_DB_PASSWORD y "
-                "los permisos del usuario."
+                f"Acceso denegado para el usuario '{settings.db_user}' "
+                f"en la base '{settings.db_name}'. Revisa las variables "
+                "SABERIA_DB_USER, SABERIA_DB_PASSWORD y los permisos."
             ),
             error_kind=ErrorKind.AUTH_FAILED,
         )
+
     if code == _UNKNOWN_DATABASE:
         return ConnectionResult(
             ok=False,
@@ -144,24 +186,37 @@ def _failure_from_exception(exc: BaseException, settings: Settings) -> Connectio
             ),
             error_kind=ErrorKind.UNKNOWN_DATABASE,
         )
+
     if code in _UNREACHABLE_ERRORS or isinstance(exc, OSError):
         return ConnectionResult(
             ok=False,
             message=(
-                f"No se pudo conectar con MySQL en {where}. "
-                "¿Está iniciado el servicio? Revisa SABERIA_DB_HOST y SABERIA_DB_PORT."
+                f"No se pudo conectar con MySQL/MariaDB en {where}. "
+                "Revisa el servicio y las variables SABERIA_DB_HOST y "
+                "SABERIA_DB_PORT."
             ),
             error_kind=ErrorKind.SERVER_UNREACHABLE,
         )
+
     return ConnectionResult(
         ok=False,
-        message=f"Error inesperado al conectar con MySQL ({type(exc).__name__}).",
+        message=f"Error inesperado al conectar ({type(exc).__name__}).",
         error_kind=ErrorKind.UNKNOWN,
     )
 
 
 def _evaluate_version(raw_version: str) -> ConnectionResult:
-    required = ".".join(str(part) for part in MIN_MYSQL_VERSION)
+    """Valida la versión mínima de MySQL o MariaDB."""
+    is_mariadb = "mariadb" in raw_version.lower()
+
+    if is_mariadb:
+        required_version = MIN_MARIADB_VERSION
+        server_name = "MariaDB"
+    else:
+        required_version = MIN_MYSQL_VERSION
+        server_name = "MySQL"
+
+    required = ".".join(str(part) for part in required_version)
     parsed = parse_mysql_version(raw_version)
 
     if parsed is None:
@@ -171,28 +226,20 @@ def _evaluate_version(raw_version: str) -> ConnectionResult:
             server_version=raw_version,
             error_kind=ErrorKind.UNSUPPORTED_SERVER,
         )
-    if "mariadb" in raw_version.lower():
+
+    if parsed < required_version:
         return ConnectionResult(
             ok=False,
             message=(
-                f"El servidor es MariaDB ({raw_version}). SABERIA está diseñado y probado "
-                f"para MySQL {required} o superior."
+                f"{server_name} {raw_version} es demasiado antiguo: "
+                f"se requiere {required} o superior."
             ),
             server_version=raw_version,
             error_kind=ErrorKind.UNSUPPORTED_SERVER,
         )
-    if parsed < MIN_MYSQL_VERSION:
-        return ConnectionResult(
-            ok=False,
-            message=(
-                f"MySQL {raw_version} es demasiado antiguo: se requiere {required} o superior "
-                "(las restricciones CHECK del modelo de datos no se aplicarían)."
-            ),
-            server_version=raw_version,
-            error_kind=ErrorKind.UNSUPPORTED_SERVER,
-        )
+
     return ConnectionResult(
         ok=True,
-        message=f"Conexión correcta. Servidor MySQL {raw_version}.",
+        message=f"Conexión correcta. Servidor {server_name} {raw_version}.",
         server_version=raw_version,
     )

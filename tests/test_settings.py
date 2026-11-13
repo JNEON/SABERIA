@@ -11,7 +11,7 @@ class LoadSettingsTests(unittest.TestCase):
         self.assertEqual(settings, Settings())
         self.assertEqual(settings.db_host, "127.0.0.1")
         self.assertEqual(settings.db_port, 3306)
-        self.assertEqual(settings.db_name, "saberia")
+        self.assertEqual(settings.db_name, "saberiadb")
         self.assertEqual(settings.db_connect_timeout, 5)
 
     def test_environment_overrides_defaults(self):

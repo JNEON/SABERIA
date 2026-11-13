@@ -4,6 +4,7 @@ import unittest
 
 from saberia.config.settings import Settings, load_settings
 from saberia.persistence.database import (
+    MIN_MARIADB_VERSION,
     MIN_MYSQL_VERSION,
     ErrorKind,
     build_url,
@@ -44,32 +45,34 @@ class ParseVersionTests(unittest.TestCase):
         self.assertIsNone(parse_mysql_version("desconocida"))
         self.assertIsNone(parse_mysql_version(""))
 
-    def test_minimum_version_constant(self):
+    def test_minimum_mariadb_version_constant(self):
+        self.assertEqual(MIN_MARIADB_VERSION, (10, 2, 1))
         self.assertEqual(MIN_MYSQL_VERSION, (8, 0, 16))
 
 
 class CheckConnectionVersionTests(unittest.TestCase):
-    def test_supported_versions(self):
-        for version in ("8.0.16", "8.0.36", "8.4.2", "9.0.1"):
+    def test_supported_mariadb_versions(self):
+        for version in (
+            "10.2.1-MariaDB",
+            "10.4.32-MariaDB",
+            "10.11.6-MariaDB",
+        ):
             with self.subTest(version=version):
                 result = check_connection(SETTINGS, fetching(version))
                 self.assertTrue(result.ok)
                 self.assertEqual(result.server_version, version)
                 self.assertIsNone(result.error_kind)
-                self.assertIn(version, result.message)
+                self.assertIn("MariaDB", result.message)
 
-    def test_old_versions_are_rejected(self):
-        for version in ("8.0.15", "5.7.44"):
+    def test_old_mariadb_versions_are_rejected(self):
+        for version in ("10.2.0-MariaDB", "10.1.48-MariaDB"):
             with self.subTest(version=version):
                 result = check_connection(SETTINGS, fetching(version))
                 self.assertFalse(result.ok)
-                self.assertEqual(result.error_kind, ErrorKind.UNSUPPORTED_SERVER)
-
-    def test_mariadb_is_rejected_even_with_high_version_number(self):
-        result = check_connection(SETTINGS, fetching("10.11.6-MariaDB"))
-        self.assertFalse(result.ok)
-        self.assertEqual(result.error_kind, ErrorKind.UNSUPPORTED_SERVER)
-        self.assertIn("MariaDB", result.message)
+                self.assertEqual(
+                    result.error_kind,
+                    ErrorKind.UNSUPPORTED_SERVER,
+                )
 
     def test_unparseable_version(self):
         result = check_connection(SETTINGS, fetching("???"))
@@ -119,7 +122,7 @@ class BuildUrlTests(unittest.TestCase):
     def test_url_uses_pymysql_and_utf8mb4_and_hides_password(self):
         rendered = build_url(SETTINGS).render_as_string(hide_password=True)
         self.assertEqual(
-            rendered, "mysql+pymysql://saberia_app:***@127.0.0.1:3306/saberia?charset=utf8mb4"
+            rendered, "mysql+pymysql://saberia_app:***@127.0.0.1:3306/saberiadb?charset=utf8mb4"
         )
 
     def test_special_characters_in_password_are_preserved(self):
